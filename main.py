@@ -25,6 +25,8 @@ app.add_middleware(
 def get_yt_key():  return os.getenv("YOUTUBE_API_KEY", "")
 def get_mc_key():  return os.getenv("MEDIACLOUD_API_KEY", "")
 
+TUMBLR_API_KEY = "fuiKNFp9vQFvjLNvx4sUwti4Yb5yGutBN4Xh10LXZhhRKjWlV4"
+
 # ── Region definitions ────────────────────────────────────────────────────────
 REGIONS = {
     "mediterranean": {"lat1": 30, "lat2": 46, "lng1": -6,  "lng2": 36,  "geo": "mediterranean sea",  "trends_geo": ""},
@@ -320,30 +322,38 @@ async def trends(region: str = Query("mediterranean"), year: int = Query(None)):
 
 # ── Tumblr ────────────────────────────────────────────────────────────────────
 @app.get("/api/tumblr")
-async def tumblr(region: str = Query("mediterranean")):
-    reg = REGIONS.get(region, REGIONS["mediterranean"])
-    geo = reg["geo"]
-    TUMBLR_KEY = "fuiKNFp9vQFvjLNvx4sUwti4Yb5yGutBN4Xh10LXZhhRKjWlV4"
+async def tumblr(region: str = Query("mediterranean"), year: int = Query(None)):
+    year = year or datetime.now().year
+    reg  = REGIONS.get(region, REGIONS["mediterranean"])
+    geo  = reg["geo"]
     posts = []
     total = 0
+    monthly = [0] * 12
 
     async with httpx.AsyncClient() as client:
         for tag in [f"jellyfish {geo}", "jellyfish bloom", "jellyfish"]:
             try:
                 r = await client.get(
                     "https://api.tumblr.com/v2/tagged",
-                    params={"tag": tag, "api_key": TUMBLR_KEY},
+                    params={"tag": tag, "api_key": TUMBLR_API_KEY},
                     timeout=15,
                 )
                 items = r.json().get("response", [])
                 total += len(items)
-                for p in items[:2]:
+                for p in items[:3]:
+                    date_str = p.get("date", "")[:10]
                     posts.append({
                         "title": p.get("summary") or p.get("slug", ""),
-                        "blog": p.get("blog_name", ""),
-                        "url": p.get("post_url") or p.get("short_url", ""),
-                        "date": p.get("date", "")[:10],
+                        "blog":  p.get("blog_name", ""),
+                        "url":   p.get("post_url") or p.get("short_url", ""),
+                        "date":  date_str,
                     })
+                    # assign to month if same year
+                    try:
+                        m = int(date_str[5:7]) - 1
+                        if date_str[:4] == str(year): monthly[m] += 1
+                    except Exception:
+                        pass
                 if total > 0:
                     break
             except Exception:
@@ -353,8 +363,10 @@ async def tumblr(region: str = Query("mediterranean")):
         "source": "tumblr",
         "status": "live" if total > 0 else "empty",
         "total": total,
+        "monthly": monthly,
         "posts": posts[:4],
     }
+
 
 
 # ── Combined score ────────────────────────────────────────────────────────────
@@ -362,8 +374,9 @@ WEIGHTS = {
     "inaturalist": 0.30,
     "youtube":     0.18,
     "mediacloud":  0.20,
-    "reddit":      0.17,
-    "trends":      0.15,
+    "reddit":      0.16,
+    "trends":      0.11,
+    "tumblr":      0.05,
 }
 
 
@@ -376,12 +389,13 @@ async def combined(
     year = year or datetime.now().year
 
     # קריאה מקבילית לכל המקורות
-    inat_data, yt_data, mc_data, rd_data, tr_data = await asyncio.gather(
+    inat_data, yt_data, mc_data, rd_data, tr_data, tb_data = await asyncio.gather(
         inaturalist(region=region, taxon=taxon, year=year),
         youtube(region=region, year=year),
         mediacloud(region=region, year=year),
         reddit(region=region, year=year),
         trends(region=region, year=year),
+        tumblr(region=region, year=year),
     )
 
     sources = {
@@ -390,6 +404,7 @@ async def combined(
         "mediacloud":  mc_data["monthly"],
         "reddit":      rd_data["monthly"],
         "trends":      tr_data["monthly"],
+        "tumblr":      tb_data["monthly"],
     }
 
     # נרמול + weighted average
@@ -409,6 +424,7 @@ async def combined(
         "mediacloud":  mc_data["status"],
         "reddit":      rd_data["status"],
         "trends":      tr_data["status"],
+        "tumblr":      tb_data["status"],
     }
 
     return {
