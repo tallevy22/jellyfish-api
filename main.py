@@ -195,17 +195,28 @@ async def youtube(
 
 
 # ── MediaCloud ────────────────────────────────────────────────────────────────
-async def fetch_mc_month(client, geo, year, month, key):
+async def fetch_gdelt_month(client, geo, year, month):
+    """GDELT Doc 2.0 API - חינמי, ללא API key, נתונים מ-2015"""
+    start = f"{year}{month:02d}01000000"
     days  = monthrange(year, month)[1]
-    fq    = f"publish_date:[{year}-{month:02d}-01T00:00:00Z TO {year}-{month:02d}-{days:02d}T23:59:59Z]"
+    end   = f"{year}{month:02d}{days:02d}235959"
     params = {
-        "q": f"jellyfish {geo}",
-        "fq": fq,
-        "key": key,
+        "query":         f"jellyfish {geo}",
+        "mode":          "artlist",
+        "maxrecords":    "250",
+        "format":        "json",
+        "startdatetime": start,
+        "enddatetime":   end,
+        "sort":          "datedesc",
     }
     try:
-        r = await client.get("https://api.mediacloud.org/api/v2/stories/count", params=params, timeout=15)
-        return r.json().get("count", 0)
+        r = await client.get(
+            "https://api.gdeltproject.org/api/v2/doc/doc",
+            params=params, timeout=20
+        )
+        data = r.json()
+        articles = data.get("articles", [])
+        return len(articles)
     except Exception:
         return 0
 
@@ -215,22 +226,19 @@ async def mediacloud(
     region: str = Query("mediterranean"),
     year: int = Query(None),
 ):
-    MC_KEY = get_mc_key()
-    if not MC_KEY:
-        return {"source": "mediacloud", "status": "no_key", "monthly": [0]*12, "total": 0}
-
+    """GDELT Doc 2.0 API – מחליף את MediaCloud, חינמי וללא API key"""
     year = year or datetime.now().year
     reg  = REGIONS.get(region, REGIONS["mediterranean"])
     geo  = reg["geo"]
 
     async with httpx.AsyncClient() as client:
         monthly = await asyncio.gather(*[
-            fetch_mc_month(client, geo, year, m, MC_KEY)
+            fetch_gdelt_month(client, geo, year, m)
             for m in range(1, 13)
         ])
 
     return {
-        "source": "mediacloud",
+        "source": "gdelt",
         "status": "live",
         "monthly": list(monthly),
         "total": sum(monthly),
@@ -445,8 +453,8 @@ async def debug():
         if mc:
             try:
                 r = await client.get(
-                    "https://api.mediacloud.org/api/v2/stories/count",
-                    params={"q": "jellyfish", "key": mc},
+                    "https://api.gdeltproject.org/api/v2/doc/doc",
+                    params={"query": "jellyfish", "mode": "artlist", "maxrecords": "5", "format": "json", "startdatetime": "20240701000000", "enddatetime": "20240731235959"},
                     timeout=15
                 )
                 mc_raw = r.json()
