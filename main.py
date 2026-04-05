@@ -423,14 +423,44 @@ async def root():
 
 @app.get("/api/debug")
 async def debug():
-    """בדיקת סטטוס המפתחות – לא חושף את ערכם"""
+    """בדיקת סטטוס המפתחות + תשובה גולמית מה-APIs"""
     yt = get_yt_key()
     mc = get_mc_key()
+    yt_raw = None
+    mc_raw = None
+
+    async with httpx.AsyncClient() as client:
+        if yt:
+            try:
+                r = await client.get(
+                    "https://www.googleapis.com/youtube/v3/search",
+                    params={"part": "snippet", "q": "jellyfish", "type": "video",
+                            "maxResults": 3, "key": yt},
+                    timeout=15
+                )
+                yt_raw = r.json()
+            except Exception as e:
+                yt_raw = {"error": str(e)}
+
+        if mc:
+            try:
+                r = await client.get(
+                    "https://api.mediacloud.org/api/v2/stories/count",
+                    params={"q": "jellyfish", "key": mc},
+                    timeout=15
+                )
+                mc_raw = r.json()
+            except Exception as e:
+                mc_raw = {"error": str(e)}
+
     return {
         "youtube_key_set": bool(yt),
         "youtube_key_prefix": yt[:8] + "..." if yt else None,
+        "youtube_raw_response": yt_raw,
         "mediacloud_key_set": bool(mc),
         "mediacloud_key_prefix": mc[:8] + "..." if mc else None,
+        "mediacloud_raw_response": mc_raw,
         "taxa_available": list(TAXA.keys()),
         "regions_available": list(REGIONS.keys()),
     }
+
