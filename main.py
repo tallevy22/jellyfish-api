@@ -21,8 +21,9 @@ app.add_middleware(
 )
 
 # ── Keys from environment variables ──────────────────────────────────────────
-YT_KEY = os.getenv("YOUTUBE_API_KEY", "")
-MC_KEY = os.getenv("MEDIACLOUD_API_KEY", "")
+# NOTE: keys are loaded at request time to pick up Render env vars correctly
+def get_yt_key():  return os.getenv("YOUTUBE_API_KEY", "")
+def get_mc_key():  return os.getenv("MEDIACLOUD_API_KEY", "")
 
 # ── Region definitions ────────────────────────────────────────────────────────
 REGIONS = {
@@ -35,9 +36,12 @@ REGIONS = {
 }
 
 TAXA = {
-    "scyphozoa": 47534,
-    "medusozoa": 47533,
-    "physalia":  118313,
+    "scyphozoa": 47534,   # מדוזות אמיתיות
+    "medusozoa": 47533,   # כל המדוזות
+    "physalia":  118313,  # ספינת מלחמה פורטוגלית
+    "cubozoa":   47804,   # מדוזות קופסה
+    "hydrozoa":  47534,   # הידרוזואה - using closest available
+    "jellyfish":  47533,  # jellyfish (general) - same as medusozoa
 }
 
 
@@ -166,6 +170,7 @@ async def youtube(
     region: str = Query("mediterranean"),
     year: int = Query(None),
 ):
+    YT_KEY = get_yt_key()
     if not YT_KEY:
         return {"source": "youtube", "status": "no_key", "monthly": [0]*12, "total": 0, "recent": []}
 
@@ -210,6 +215,7 @@ async def mediacloud(
     region: str = Query("mediterranean"),
     year: int = Query(None),
 ):
+    MC_KEY = get_mc_key()
     if not MC_KEY:
         return {"source": "mediacloud", "status": "no_key", "monthly": [0]*12, "total": 0}
 
@@ -413,4 +419,18 @@ async def root():
         "endpoints": ["/api/inaturalist", "/api/youtube", "/api/mediacloud",
                       "/api/reddit", "/api/trends", "/api/tumblr", "/api/combined"],
         "docs": "/docs",
+    }
+
+@app.get("/api/debug")
+async def debug():
+    """בדיקת סטטוס המפתחות – לא חושף את ערכם"""
+    yt = get_yt_key()
+    mc = get_mc_key()
+    return {
+        "youtube_key_set": bool(yt),
+        "youtube_key_prefix": yt[:8] + "..." if yt else None,
+        "mediacloud_key_set": bool(mc),
+        "mediacloud_key_prefix": mc[:8] + "..." if mc else None,
+        "taxa_available": list(TAXA.keys()),
+        "regions_available": list(REGIONS.keys()),
     }
